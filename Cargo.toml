@@ -1,0 +1,18 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+# The site has its own workspace (site/prep), so site/ can move to another repository whole.
+exclude = ["site"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.99"
+license-file = "LICENSE"
+repository = "https://github.com/lokkju/edgekms"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }

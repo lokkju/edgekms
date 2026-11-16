@@ -1,0 +1,18 @@
+[tools]
+rust = { version = "1.99", targets = "wasm32-unknown-unknown", components = "clippy,rustfmt" }
+"cargo:worker-build" = "0.8.7"
+"github:release-plz/release-plz" = { version = "0.3.169", version_prefix = "release-plz-v" }
+"cargo:wasm-bindgen-cli" = "0.2.129"
+# wasm-bindgen-test-runner's default runtime (it provides globalThis.crypto.subtle) and wrangler's.
+node = "24.22.1"
+"npm:wrangler" = "4.145.0"
+# Builds the web console (console/).
+pnpm = "12.18.0"
+# THIRD-PARTY-NOTICES for release tarballs (.mise/tasks/third-party-notices).
+"github:EmbarkStudios/cargo-about" = "0.9.3"
+# Secret scanning of a tree before it's published.
+gitleaks = "8.30.1"
+age = "1.3.2"
+sops = "3.13.3"
+yq = "4.54.1"
+pulumi = "3.273.0"

@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+#MISE description="Check that hosted_check_config passes wrangler.jsonc and refuses it with each required binding or var removed, and that hosted_check_wrap_keys refuses rows on an unbound master version"
+set -euo pipefail
+
+# Needs no token and touches nothing remote: mise -C deploy/example-hosted run test-config
+#
+# HOSTED_DIR names the deploy directory whose wrangler.jsonc is checked; it defaults to the one
+# this task is in, whose config holds placeholders that pass these rules (deploy refuses them
+# separately).
+
+dir=$(realpath "${HOSTED_DIR:-$(dirname "${BASH_SOURCE[0]}")/../..}")
+
+# hosted_check_config calls die; here it ends the subshell the case runs in.
+die() { echo "$*" >&2; exit 1; }
+
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../lib/hosted.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/hosted.sh"
+
+cfg=$(hosted_config)
+failures=0
+
+# The committed config must pass.
+if ! out=$( (hosted_check_config "$cfg") 2>&1); then
+  echo "FAIL: wrangler.jsonc itself is refused:" >&2
+  echo "$out" >&2
+  failures=$((failures + 1))
+fi
+
+# refuses NAME JQ_FILTER EXPECTED: the config changed by JQ_FILTER must be refused, with a
+# problem line containing EXPECTED.
+refuses() {
+  local name=$1 filter=$2 expected=$3 mutated out
+  mutated=$(jq -c "$filter" <<<"$cfg")
+  if out=$( (hosted_check_config "$mutated") 2>&1); then
+    echo "FAIL: $name: accepted" >&2
+    failures=$((failures + 1))
+  elif [[ $out != *"$expected"* ]]; then
+    echo "FAIL: $name: refused without naming \"$expected\":" >&2
+    echo "$out" >&2
+    failures=$((failures + 1))
+  else
+    echo "ok: $name"
+  fi
+}
+
+for limit in LOGIN_LIMIT TOKEN_LIMIT AUTH_FAIL_LIMIT TENANT_LIMIT CONTROL_LIMIT; do
+  refuses "without $limit" "del(.ratelimits[] | select(.name == \"$limit\"))" "ratelimits needs $limit"
+done
+refuses "without ratelimits" 'del(.ratelimits)' "ratelimits needs LOGIN_LIMIT"
+refuses "without REVOKED" 'del(.kv_namespaces[] | select(.binding == "REVOKED"))' "kv_namespaces needs REVOKED"
+refuses "REVOKED without an id" '(.kv_namespaces[] | select(.binding == "REVOKED")).id = ""' "kv_namespaces needs REVOKED"
+refuses "without AUDIT" 'del(.r2_buckets[] | select(.binding == "AUDIT"))' "r2_buckets needs AUDIT"
+refuses "without r2_buckets" 'del(.r2_buckets)' "r2_buckets needs AUDIT"
+for var in HOSTED_ORIGIN_TEMPLATE GITHUB_CLIENT_ID OPERATOR_GITHUB_IDS; do
+  refuses "without $var" "del(.vars.$var)" "vars.$var must be set"
+  refuses "empty $var" ".vars.$var = \"\"" "vars.$var must be set"
+done
+refuses "with a build block" '.build = {command: "worker-build --release"}' "no build block"
+# A hosted.env with HOSTED_NO_ROUTES says something else owns the routes.
+if [[ -n $HOSTED_NO_ROUTES ]]; then
+  refuses "with a route" '.routes = [{pattern: "*.example.com/*", zone_name: "example.com"}]' "no routes"
+fi
+refuses "HOSTED_ORIGIN_TEMPLATE without {tenant}" '.vars.HOSTED_ORIGIN_TEMPLATE = "https://edgekms.dev"' "vars.HOSTED_ORIGIN_TEMPLATE must be set"
+for bad in x -1 1.5 "200 requests" ""; do
+  refuses "MAX_PENDING_INVITE_REQUESTS \"$bad\"" ".vars.MAX_PENDING_INVITE_REQUESTS = \"$bad\"" \
+    "vars.MAX_PENDING_INVITE_REQUESTS must be a whole number"
+done
+# 0 (take no new requests) and leaving the var out (the default, 200) both pass.
+for filter in '.vars.MAX_PENDING_INVITE_REQUESTS = "0"' 'del(.vars.MAX_PENDING_INVITE_REQUESTS)'; do
+  if out=$( (hosted_check_config "$(jq -c "$filter" <<<"$cfg")") 2>&1); then
+    echo "ok: $filter passes"
+  else
+    echo "FAIL: $filter: refused:" >&2
+    echo "$out" >&2
+    failures=$((failures + 1))
+  fi
+done
+
+# hosted_check_wrap_keys, against `wrangler d1 execute --json` output of the shape a local D1
+# returns for HOSTED_WRAP_KEY_QUERY. The committed config binds m1 only.
+wrap_keys() {
+  local name=$1 want=$2 rows=$3 expected=${4:-} out rc=0
+  out=$( (hosted_check_wrap_keys "$cfg" "$rows") 2>&1) || rc=$?
+  if [[ $want == accept && $rc -ne 0 ]]; then
+    echo "FAIL: $name: refused:" >&2
+    echo "$out" >&2
+    failures=$((failures + 1))
+  elif [[ $want == refuse && $rc -eq 0 ]]; then
+    echo "FAIL: $name: accepted" >&2
+    failures=$((failures + 1))
+  elif [[ $want == refuse && $out != *"$expected"* ]]; then
+    echo "FAIL: $name: refused without naming \"$expected\":" >&2
+    echo "$out" >&2
+    failures=$((failures + 1))
+  else
+    echo "ok: $name"
+  fi
+}
+d1() { printf '[{"results":%s,"success":true,"meta":{"duration":0}}]' "$1"; }
+wrap_keys "every row on a bound version" accept "$(d1 '[{"wrap_key":"m1","n":3}]')"
+wrap_keys "an empty D1" accept "$(d1 '[]')"
+wrap_keys "rows on a retired version" refuse "$(d1 '[{"wrap_key":"m1","n":3},{"wrap_key":"m2","n":2}]')" \
+  '2 row(s) in D1 are wrapped under "m2"'
+wrap_keys "output that isn't d1 execute's" refuse '{"error":"nope"}' "couldn't read the wrap_key counts"
+
+if ((failures > 0)); then
+  echo "$failures case(s) failed" >&2
+  exit 1
+fi
+echo "all cases passed"

@@ -1,0 +1,170 @@
+# Release automation: release-plz opens and merges the release PR flow, tags the release, and
+# this workflow builds the edgekms CLI binaries and attaches them to the GitHub release.
+#
+# Tokens. The repo forbids Actions from opening pull requests with GITHUB_TOKEN, so the
+# release-pr job needs a GitHub App token. When the repository variable RELEASE_APP_ID (and the
+# secret RELEASE_APP_PRIVATE_KEY) exist, each job mints an installation token and uses it. When
+# they do not, every job falls back to GITHUB_TOKEN: releases and uploads still work, opening the
+# release PR does not.
+#
+# Triggers. Anything made with GITHUB_TOKEN (PRs, releases, tags) does not start other
+# workflows, so binaries are built here, in the job after `release`, and not from a
+# `release: published` trigger. Anything made with the App token does start workflows, which is
+# harmless here because no other workflow listens for those events.
+#
+# Backfill. Running this workflow by hand with a tag (workflow_dispatch input `tag`, for example
+# v0.1.0) skips release-plz and only builds and uploads the binaries for that existing release.
+
+name: release-plz
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build and upload binaries for (skips release-plz)"
+        required: false
+        type: string
+
+permissions: {}
+
+jobs:
+  release:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      # release-plz looks up the PR each released commit came from.
+      pull-requests: read
+    outputs:
+      created: ${{ steps.plz.outputs.releases_created }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Release App token
+        id: app
+        if: ${{ vars.RELEASE_APP_ID != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@94c60b39bc2d90ab2f9bab27f38d3cc4812c1834 # v5.1.0
+        with:
+          install_args: rust
+      - name: release-plz release
+        id: plz
+        uses: release-plz/action@b8d6b54b02889ff2ae2bb82e8b57c3a8fc1683a5 # v0.5.139
+        with:
+          command: release
+        env:
+          # The action reads the forge token from the GITHUB_TOKEN environment variable.
+          GITHUB_TOKEN: ${{ steps.app.outputs.token || secrets.GITHUB_TOKEN }}
+      - name: Tag of the edgekms-cli release
+        id: tag
+        env:
+          RELEASES: ${{ steps.plz.outputs.releases }}
+        run: |
+          tag=$(jq -r '[.[] | select(.package_name == "edgekms-cli")][0].tag // empty' <<<"$RELEASES")
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+  release-pr:
+    # GitHub refuses PRs opened with GITHUB_TOKEN here, so this job waits for the App.
+    if: ${{ github.event_name == 'push' && vars.RELEASE_APP_ID != '' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: release-plz-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Release App token
+        id: app
+        if: ${{ vars.RELEASE_APP_ID != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@94c60b39bc2d90ab2f9bab27f38d3cc4812c1834 # v5.1.0
+        with:
+          install_args: rust
+      - uses: release-plz/action@b8d6b54b02889ff2ae2bb82e8b57c3a8fc1683a5 # v0.5.139
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ steps.app.outputs.token || secrets.GITHUB_TOKEN }}
+
+  binaries:
+    needs: release
+    # A push builds only when release-plz made an edgekms-cli release; a manual run builds for
+    # the tag it was given. `always()` lets the manual run proceed with `release` skipped.
+    if: >-
+      ${{ always() && (
+        (github.event_name == 'workflow_dispatch' && inputs.tag != '') ||
+        (needs.release.result == 'success' && needs.release.outputs.created == 'true' && needs.release.outputs.tag != '')
+      ) }}
+    name: binaries (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # GitHub-hosted runners only, each building for its own architecture. The free
+          # ubuntu-24.04-arm runner is available to public repos.
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04-arm
+          - target: aarch64-apple-darwin
+            os: macos-15
+    env:
+      TAG: ${{ inputs.tag || needs.release.outputs.tag }}
+    steps:
+      - name: Release App token
+        id: app
+        if: ${{ vars.RELEASE_APP_ID != '' }}
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      # node and pnpm build the web console for THIRD-PARTY-NOTICES; cargo-about collects the
+      # crates' licenses.
+      - uses: jdx/mise-action@94c60b39bc2d90ab2f9bab27f38d3cc4812c1834 # v5.1.0
+        with:
+          install_args: rust node pnpm github:EmbarkStudios/cargo-about
+      - name: Add Rust target
+        run: mise x rust -- rustup target add ${{ matrix.target }}
+      # Builds with the build machine's paths remapped out of the binary, then packages it with
+      # LICENSE and THIRD-PARTY-NOTICES into dist/.
+      - name: Build and package
+        run: mise x rust node pnpm github:EmbarkStudios/cargo-about -- .mise/tasks/release-build "${{ matrix.target }}" "${TAG#v}"
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token || secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$TAG" dist/*.tar.gz dist/*.tar.gz.sha256 --clobber

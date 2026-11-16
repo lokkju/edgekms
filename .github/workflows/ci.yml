@@ -1,0 +1,78 @@
+name: ci
+
+# GitHub-hosted runners only. A pull request from a fork runs its own copy of this file, so the
+# public repo must never have a self-hosted runner registered: whatever label a fork asks for,
+# only GitHub's runners can serve it. Fork pull requests also wait for a maintainer's approval
+# (repository settings, Actions, "Approval for running fork pull request workflows").
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@94c60b39bc2d90ab2f9bab27f38d3cc4812c1834 # v5.1.0
+        with:
+          install_args: rust
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test
+      - run: cargo build -p edgekms-core --target wasm32-unknown-unknown
+
+  worker-wasm:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Node (pinned in .mise/config.toml) is wasm-bindgen-test-runner's default runtime and
+      # provides globalThis.crypto.subtle.
+      - uses: jdx/mise-action@94c60b39bc2d90ab2f9bab27f38d3cc4812c1834 # v5.1.0
+        with:
+          install_args: rust cargo:wasm-bindgen-cli node
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # The worker's tests are wasm-only (`cfg(target_arch = "wasm32")`), so the host clippy in
+      # `check` never sees them.
+      - run: cargo clippy -p edgekms-worker --all-targets --target wasm32-unknown-unknown -- -D warnings
+      - run: cargo test -p edgekms-worker --target wasm32-unknown-unknown
+        env:
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER: wasm-bindgen-test-runner
+
+  # The hosted-mode deploy rules (deploy/example-hosted/.mise/lib/hosted.sh) against the example
+  # config and against copies missing each required binding or var. No token.
+  hosted-config:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # node runs jsonc.mjs; jq is on the runner image.
+      - uses: jdx/mise-action@94c60b39bc2d90ab2f9bab27f38d3cc4812c1834 # v5.1.0
+        with:
+          install_args: node
+      # The script itself, not `mise run`: mise run installs every tool in .mise/config.toml
+      # first (worker-build, wasm-bindgen-cli, pulumi, ...), none of which this needs.
+      - run: deploy/example-hosted/.mise/tasks/test-config
+
+  console:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # node and pnpm, both pinned in .mise/config.toml.
+      - uses: jdx/mise-action@94c60b39bc2d90ab2f9bab27f38d3cc4812c1834 # v5.1.0
+        with:
+          install_args: node pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm test
+      # `build` also fails on an inline script, style or style= attribute in dist/index.html.
+      - run: pnpm build
+      # --with-deps installs Chromium's system libraries through sudo apt-get.
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm e2e

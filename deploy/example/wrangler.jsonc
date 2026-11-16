@@ -1,0 +1,27 @@
+{
+  // A single-tenant edgekms: one Worker, one root key, one config.json. Every REPLACE_WITH value
+  // and kms.example.com is yours to fill in (README.md); the deploy task refuses to run while
+  // any remain.
+  "name": "edgekms",
+  "account_id": "REPLACE_WITH_ACCOUNT_ID",
+  // Paths below are relative to this file. worker-build writes build/worker/shim.mjs into its cwd.
+  "main": "../../crates/edgekms-worker/build/worker/shim.mjs",
+  "compatibility_date": "2026-10-01",
+  "build": { "cwd": "../../crates/edgekms-worker", "command": "worker-build --release" },
+  "routes": [{ "pattern": "kms.example.com", "custom_domain": true }],
+  // Serve only the custom domain: no <name>.<subdomain>.workers.dev origin and no per-version
+  // preview URLs, so every request goes through the route above.
+  "workers_dev": false,
+  "preview_urls": false,
+  // EDGEKMS_CONFIG is supplied by the deploy task as a --var (the compacted config.json).
+  // ROOT_KEY is a Worker secret (README.md, "Root key"), so it has no binding here. The Worker
+  // falls back to a plain secret when no Secrets Store binding exists.
+  "kv_namespaces": [{ "binding": "REVOKED", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }],
+  "r2_buckets": [{ "binding": "AUDIT", "bucket_name": "edgekms-audit" }],
+  "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "edgekms" }],
+  "ratelimits": [
+    { "name": "LOGIN_LIMIT", "namespace_id": "2001", "simple": { "limit": 30, "period": 60 } },
+    { "name": "AUTH_FAIL_LIMIT", "namespace_id": "2003", "simple": { "limit": 30, "period": 60 } },
+    { "name": "TOKEN_LIMIT", "namespace_id": "2002", "simple": { "limit": 600, "period": 60 } }
+  ]
+}

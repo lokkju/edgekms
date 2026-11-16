@@ -1,0 +1,147 @@
+{
+  "root_id": "r_fc3585fd964c55ea",
+  "keys": {
+    "smoke": {
+      "id": "k_6e4811cc4fc69a25",
+      "latest_version": 1,
+      "min_decryption_version": 1
+    },
+    "openbao-unseal": {
+      "id": "k_6af03be70e850fc7",
+      "latest_version": 1,
+      "min_decryption_version": 1
+    },
+    "infra-ci-test": {
+      "id": "k_f4f6b02ffb0535b9",
+      "latest_version": 1,
+      "min_decryption_version": 1
+    },
+    "pulumi-smoke": {
+      "id": "k_22eeebcc7b413dba",
+      "latest_version": 1,
+      "min_decryption_version": 1
+    }
+  },
+  "mounts": {
+    "github": {
+      "type": "jwt",
+      "issuer": "https://token.actions.githubusercontent.com",
+      "jwks_url": "https://token.actions.githubusercontent.com/.well-known/jwks"
+    },
+    "ssh": {
+      "type": "ssh"
+    },
+    "github-user": {
+      "type": "github-user",
+      "client_id": "Iv_hosted_test"
+    }
+  },
+  "roles": {
+    "edgekms-smoke": {
+      "mount": "github",
+      "bound_audiences": [
+        "https://acme.edge.km"
+      ],
+      "bound_claims": {
+        "repository_id": "123456789",
+        "repository_owner_id": "583231",
+        "ref": "refs/heads/main"
+      },
+      "policies": [
+        "smoke"
+      ],
+      "token_ttl_secs": 900
+    },
+    "edgekms-pulumi-smoke": {
+      "mount": "github",
+      "bound_audiences": [
+        "https://acme.edge.km"
+      ],
+      "bound_claims": {
+        "repository_id": "123456789",
+        "repository_owner_id": "583231",
+        "ref": "refs/heads/main"
+      },
+      "policies": [
+        "pulumi-smoke"
+      ],
+      "token_ttl_secs": 900
+    },
+    "operator": {
+      "mount": "ssh",
+      "ssh_keys": [
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG2G2bw/FeOog7lIc6nf4KaqaUwiNLj/TnBvRVIX4+xA operator@example"
+      ],
+      "policies": [
+        "admin",
+        "key-admin",
+        "openbao-seal"
+      ],
+      "token_ttl_secs": 3600
+    },
+    "operator-github": {
+      "mount": "github-user",
+      "github_user_ids": [
+        583231
+      ],
+      "policies": [
+        "admin",
+        "key-admin",
+        "openbao-seal"
+      ],
+      "token_ttl_secs": 3600
+    }
+  },
+  "policies": {
+    "smoke": {
+      "keys": {
+        "smoke": [
+          "encrypt",
+          "decrypt"
+        ]
+      }
+    },
+    "pulumi-smoke": {
+      "keys": {
+        "pulumi-smoke": [
+          "encrypt",
+          "decrypt"
+        ]
+      }
+    },
+    "openbao-seal": {
+      "keys": {
+        "openbao-unseal": [
+          "encrypt",
+          "decrypt"
+        ]
+      }
+    },
+    "admin": {
+      "admin": [
+        "token-create",
+        "token-revoke"
+      ]
+    },
+    "key-admin": {
+      "keys": {
+        "smoke": [
+          "read",
+          "rewrap"
+        ],
+        "openbao-unseal": [
+          "read",
+          "rewrap"
+        ],
+        "infra-ci-test": [
+          "read",
+          "rewrap"
+        ],
+        "pulumi-smoke": [
+          "read",
+          "rewrap"
+        ]
+      }
+    }
+  }
+}

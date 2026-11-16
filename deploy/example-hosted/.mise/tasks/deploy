@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+#MISE description="Check wrangler.jsonc, build the console and the Worker, apply D1 migrations and deploy the hosted-mode Worker"
+#USAGE flag "--prebuilt" help="Deploy what the build task already left in console/dist and crates/edgekms-worker/build instead of building first"
+set -euo pipefail
+
+#   EDGEKMS_CLOUDFLARE_API_TOKEN=... mise -C deploy/example-hosted run deploy
+#
+# Without --prebuilt the build runs here with the token variables dropped from its environment
+# (the build task). A build script running as your user can still read the environment of the
+# processes above it, this one included, so to keep the token entirely away from third-party
+# code, build first from a shell that doesn't hold it, as a CI deploy should:
+#
+#   mise -C deploy/example-hosted run build
+#   EDGEKMS_CLOUDFLARE_API_TOKEN=... mise -C deploy/example-hosted run deploy --prebuilt
+#
+# HOSTED_DIR names the deploy directory (wrangler.jsonc and an optional hosted.env); it defaults
+# to the one this task is in.
+
+dir=$(realpath "${HOSTED_DIR:-$(dirname "${BASH_SOURCE[0]}")/../..}")
+
+die() { echo "deploy: $*" >&2; exit 1; }
+
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../lib/hosted.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/hosted.sh"
+
+hosted_placeholders
+hosted_check_config "$(hosted_config)"
+hosted_migrations_present
+
+if [[ ${usage_prebuilt:-false} != true ]]; then
+  "$(dirname "${BASH_SOURCE[0]}")/build"
+fi
+[[ -f $edgekms_src/console/dist/index.html ]] || die "no console/dist/index.html; run the build task first"
+[[ -f $edgekms_src/crates/edgekms-worker/build/worker/shim.mjs ]] ||
+  die "no crates/edgekms-worker/build/worker/shim.mjs; run the build task first"
+
+hosted_auth
+
+# --cwd matters: wrangler resolves migrations_dir against its working directory, not the config
+# file. Migrations go first, so the code never runs against an older schema; a migration must
+# therefore keep working with the Worker version already deployed. wrangler.jsonc has no
+# `build` block (hosted_check_config refuses one), so `wrangler deploy` uploads the build above
+# and runs no build command of its own.
+wrangler --cwd "$dir" d1 migrations apply "$HOSTED_D1" --remote --config wrangler.jsonc
+
+# Every master version a row in D1 is wrapped under must still be bound. Comparing against D1
+# itself, not against the previous wrangler.jsonc, also covers a version dropped in an earlier
+# commit or by hand.
+wrap_keys=$(wrangler --cwd "$dir" d1 execute "$HOSTED_D1" --remote --config wrangler.jsonc --json \
+  --command "$HOSTED_WRAP_KEY_QUERY") || die "couldn't count the rows per master version in D1"
+hosted_check_wrap_keys "$(hosted_config)" "$wrap_keys"
+
+exec wrangler --cwd "$dir" deploy --config wrangler.jsonc

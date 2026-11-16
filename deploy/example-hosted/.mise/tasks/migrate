@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+#MISE description="Apply the D1 migrations to the tenants database without deploying the Worker"
+set -euo pipefail
+
+# For a first run, before the GitHub App or the master key exist: only the D1 database id has to
+# be filled in.
+#
+#   EDGEKMS_CLOUDFLARE_API_TOKEN=... mise -C deploy/example-hosted run migrate
+#
+# HOSTED_DIR names the deploy directory; it defaults to the one this task is in.
+
+dir=$(realpath "${HOSTED_DIR:-$(dirname "${BASH_SOURCE[0]}")/../..}")
+
+die() { echo "migrate: $*" >&2; exit 1; }
+
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=../lib/hosted.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/hosted.sh"
+
+hosted_placeholders REPLACE_WITH_D1_TENANTS_ID
+hosted_migrations_present
+hosted_auth
+
+exec wrangler --cwd "$dir" d1 migrations apply "$HOSTED_D1" --remote --config wrangler.jsonc

@@ -1,0 +1,60 @@
+{
+  "root_id": "r_replace_with_random_id",
+  "public_origins": ["https://kms.example.com"],
+  "keys": {
+    "smoke": { "id": "k_replace_with_random_id_1", "latest_version": 1, "min_decryption_version": 1 },
+    "pulumi-smoke": { "id": "k_replace_with_random_id_2", "latest_version": 1, "min_decryption_version": 1 },
+    "openbao-unseal": { "id": "k_replace_with_random_id_3", "latest_version": 1, "min_decryption_version": 1 }
+  },
+  "mounts": {
+    "github": {
+      "type": "jwt",
+      "issuer": "https://token.actions.githubusercontent.com",
+      "jwks_url": "https://token.actions.githubusercontent.com/.well-known/jwks"
+    },
+    "ssh": { "type": "ssh" }
+  },
+  "roles": {
+    "edgekms-smoke": {
+      "mount": "github",
+      "bound_audiences": ["https://kms.example.com"],
+      "bound_claims": {
+        "repository_id": "REPLACE_WITH_REPOSITORY_ID",
+        "repository_owner_id": "REPLACE_WITH_OWNER_ID",
+        "ref": "refs/heads/main"
+      },
+      "policies": ["smoke"],
+      "token_ttl_secs": 900
+    },
+    "edgekms-pulumi-smoke": {
+      "mount": "github",
+      "bound_audiences": ["https://kms.example.com"],
+      "bound_claims": {
+        "repository_id": "REPLACE_WITH_REPOSITORY_ID",
+        "repository_owner_id": "REPLACE_WITH_OWNER_ID",
+        "ref": "refs/heads/main"
+      },
+      "policies": ["pulumi-smoke"],
+      "token_ttl_secs": 900
+    },
+    "operator": {
+      "mount": "ssh",
+      "ssh_keys": ["REPLACE_WITH_YOUR_SSH_PUBLIC_KEY"],
+      "policies": ["admin", "key-admin", "openbao-seal"],
+      "token_ttl_secs": 3600
+    }
+  },
+  "policies": {
+    "smoke": { "keys": { "smoke": ["encrypt", "decrypt"] } },
+    "pulumi-smoke": { "keys": { "pulumi-smoke": ["encrypt", "decrypt"] } },
+    "openbao-seal": { "keys": { "openbao-unseal": ["encrypt", "decrypt"] } },
+    "admin": { "admin": ["token-create", "token-revoke"] },
+    "key-admin": {
+      "keys": {
+        "smoke": ["read", "rewrap"],
+        "pulumi-smoke": ["read", "rewrap"],
+        "openbao-unseal": ["read", "rewrap"]
+      }
+    }
+  }
+}

@@ -1,0 +1,78 @@
+{
+  // A hosted-mode edgekms of your own: one Worker serving every tenant at
+  // https://<tenant>.<apex>, the control plane at https://api.<apex> and the web console at
+  // https://app.<apex>. Every REPLACE_WITH value is yours to fill in (README.md, "Resource ids");
+  // the deploy and migrate tasks refuse to run while any remain.
+  "name": "edgekms",
+  "account_id": "REPLACE_WITH_ACCOUNT_ID",
+  // Paths below are relative to this file. The build task's worker-build writes
+  // build/worker/shim.mjs. No "build" block: wrangler would run it while holding the deploy
+  // token, so the build task builds beforehand without the token and the deploy task refuses a
+  // config with one.
+  "main": "../../crates/edgekms-worker/build/worker/shim.mjs",
+  "compatibility_date": "2026-10-01",
+  // The web console's build output (console/, `pnpm build`, run by the build task). The Worker
+  // hands a request to ASSETS only on app.<apex>. run_worker_first must stay true: without it,
+  // Cloudflare answers any path that matches a file before the Worker runs, on every host the
+  // route covers, so tenant hosts would serve console HTML. The deploy task refuses a config
+  // without it.
+  "assets": {
+    "directory": "../../console/dist",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "not_found_handling": "single-page-application"
+  },
+  // One wildcard route for the apex's subdomains. It needs a proxied wildcard DNS record
+  // (*.<apex>) in the zone, and the deploy token then needs Zone Read and Workers Routes Edit on
+  // it. If something else manages the route, drop this and set HOSTED_NO_ROUTES in a hosted.env
+  // next to this file so the deploy refuses a route here. No workers.dev origin and no preview
+  // URLs, so every request arrives through the route.
+  "routes": [{ "pattern": "*.REPLACE_WITH_APEX/*", "zone_name": "REPLACE_WITH_APEX" }],
+  "workers_dev": false,
+  "preview_urls": false,
+  // HOSTED_APEX switches the Worker into hosted mode. EDGEKMS_CONFIG and ROOT_KEY must never be
+  // bound here: hosted mode with either present refuses every request. GITHUB_CLIENT_SECRET is a
+  // Worker secret (README.md, "GitHub App"), so it has no entry.
+  "vars": {
+    "HOSTED_APEX": "REPLACE_WITH_APEX",
+    "HOSTED_ORIGIN_TEMPLATE": "https://{tenant}.REPLACE_WITH_APEX",
+    // The master version new wraps use. During a rotation MASTER_KEY_PREVIOUS names the one
+    // being rotated away from. Both must have a binding below.
+    "MASTER_KEY_CURRENT": "m1",
+    // Your GitHub App's client id (device flow on, no permissions).
+    "GITHUB_CLIENT_ID": "REPLACE_WITH_GITHUB_APP_CLIENT_ID",
+    // Comma-separated numeric GitHub user ids that may run `edgekms ops` commands.
+    "OPERATOR_GITHUB_IDS": "REPLACE_WITH_YOUR_GITHUB_USER_ID",
+    "MAX_TENANTS_PER_USER": "5",
+    // Who may log in: closed, invite or open; required. Invite with an empty allowlist admits
+    // only operators, existing users and people holding a pending invite, as closed does, and
+    // lets an operator admit people one at a time with `edgekms ops allowlist add <github id>`.
+    "SIGNUP_MODE": "invite",
+    // How many invite requests may be pending at once: 200 if unset, 0 takes none.
+    "MAX_PENDING_INVITE_REQUESTS": "200"
+  },
+  "d1_databases": [
+    {
+      "binding": "TENANTS",
+      "database_name": "edgekms-tenants",
+      "database_id": "REPLACE_WITH_D1_TENANTS_ID",
+      "migrations_dir": "../../crates/edgekms-worker/migrations"
+    }
+  ],
+  "kv_namespaces": [{ "binding": "REVOKED", "id": "REPLACE_WITH_KV_NAMESPACE_ID" }],
+  "r2_buckets": [{ "binding": "AUDIT", "bucket_name": "edgekms-audit" }],
+  "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "edgekms" }],
+  // One binding per master version still in use: MASTER_KEY_M<n> -> secret edgekms-master-m<n>
+  // in one Secrets Store store. Every bound, well-formed version can unwrap, so retiring a version
+  // means deleting its binding here once no row in D1 is wrapped under it.
+  "secrets_store_secrets": [
+    { "binding": "MASTER_KEY_M1", "store_id": "REPLACE_WITH_SECRETS_STORE_ID", "secret_name": "edgekms-master-m1" }
+  ],
+  "ratelimits": [
+    { "name": "LOGIN_LIMIT", "namespace_id": "3001", "simple": { "limit": 30, "period": 60 } },
+    { "name": "TOKEN_LIMIT", "namespace_id": "3002", "simple": { "limit": 600, "period": 60 } },
+    { "name": "AUTH_FAIL_LIMIT", "namespace_id": "3003", "simple": { "limit": 30, "period": 60 } },
+    { "name": "TENANT_LIMIT", "namespace_id": "3004", "simple": { "limit": 3000, "period": 60 } },
+    { "name": "CONTROL_LIMIT", "namespace_id": "3005", "simple": { "limit": 60, "period": 60 } }
+  ]
+}

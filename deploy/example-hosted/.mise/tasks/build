@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+#MISE description="Build the web console and the hosted-mode Worker with no Cloudflare token in the environment"
+set -euo pipefail
+
+# Everything third-party runs here: pnpm install and the console build (npm packages and their
+# scripts), and worker-build (every build.rs and proc-macro in the dependency tree). None of it
+# gets a Cloudflare token: the token-bearing variables are dropped from every command below. A CI
+# deploy runs this task in a step that never has the token, then `deploy --prebuilt` in a step
+# that does. `deploy` without --prebuilt runs it the same way and then deploys what it built;
+# wrangler.jsonc has no `build` block, so wrangler never runs a build of its own while it holds
+# the token.
+#
+#   mise -C deploy/example-hosted run build
+#
+# EDGEKMS_SRC names the edgekms checkout to build; it defaults to the one this task is in.
+
+die() { echo "build: $*" >&2; exit 1; }
+
+repo=$(realpath "${EDGEKMS_SRC:-$(dirname "${BASH_SOURCE[0]}")/../../../..}")
+console=$repo/console
+worker=$repo/crates/edgekms-worker
+
+# notoken [ENV OPTION...] CMD...: runs CMD without any variable that can hold a Cloudflare
+# credential. Further env(1) options, such as -C DIR, may come first.
+notoken() {
+  env -u CLOUDFLARE_API_TOKEN -u EDGEKMS_CLOUDFLARE_API_TOKEN -u CLOUDFLARE_API_KEY \
+    -u CLOUDFLARE_EMAIL "$@"
+}
+
+# The web console's static assets (wrangler.jsonc "assets"), built from this checkout every time
+# so a stale console/dist never ships. Vite empties dist before it writes.
+notoken pnpm -C "$console" install --frozen-lockfile
+notoken pnpm -C "$console" build
+[[ -f $console/dist/index.html ]] || die "the console build left no $console/dist/index.html"
+
+# The Worker (wrangler.jsonc "main"). worker-build writes build/worker/ into its cwd; clear it
+# first so a failed build can't leave an older shim behind.
+rm -rf "$worker/build"
+notoken -C "$worker" worker-build --release
+[[ -f $worker/build/worker/shim.mjs ]] || die "worker-build left no $worker/build/worker/shim.mjs"

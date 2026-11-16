@@ -1,0 +1,43 @@
+{
+  "root_id": "re2e",
+  "keys": {
+    "pulumi": { "id": "k_e2e_pulumi", "latest_version": 1, "min_decryption_version": 1 },
+    "seal": { "id": "k_e2e_seal", "latest_version": 1, "min_decryption_version": 1 }
+  },
+  "mounts": {
+    "jwt": { "type": "jwt", "issuer": "https://issuer.test", "jwks": null },
+    "github": {
+      "type": "jwt",
+      "issuer": "https://issuer.test",
+      "jwks_url": "https://token.actions.githubusercontent.com/.well-known/jwks"
+    },
+    "ssh": { "type": "ssh" }
+  },
+  "roles": {
+    "ci": {
+      "mount": "jwt",
+      "bound_audiences": ["https://kms.test"],
+      "bound_claims": { "repository_id": "42" },
+      "policies": ["pulumi"],
+      "token_ttl_secs": 900
+    },
+    "gh": {
+      "mount": "github",
+      "bound_audiences": ["https://kms.test"],
+      "bound_claims": { "repository_id": "42" },
+      "policies": ["pulumi"],
+      "token_ttl_secs": 900
+    },
+    "op": {
+      "mount": "ssh",
+      "ssh_keys": [],
+      "policies": ["admin", "seal"],
+      "token_ttl_secs": 900
+    }
+  },
+  "policies": {
+    "pulumi": { "keys": { "pulumi": ["encrypt", "decrypt"] } },
+    "seal": { "keys": { "seal": ["encrypt", "decrypt"] } },
+    "admin": { "admin": ["token-create", "token-revoke"] }
+  }
+}

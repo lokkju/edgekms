@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+#MISE description="Validate config.json and deploy the single-tenant Worker"
+set -euo pipefail
+
+#   CLOUDFLARE_API_TOKEN=... mise -C deploy/example run deploy
+#
+# Refuses placeholders, checks the token reaches exactly the account in wrangler.jsonc, validates
+# config.json with the Worker's own code, and deploys it as the EDGEKMS_CONFIG var.
+
+dir=$(realpath "$(dirname "${BASH_SOURCE[0]}")/../..")
+repo=$(realpath "${EDGEKMS_SRC:-$dir/../..}")
+
+die() { echo "deploy: $*" >&2; exit 1; }
+
+rc=0
+hits=$(grep -n -i -e 'REPLACE_WITH' -e 'kms\.example\.com' "$dir/config.json" "$dir/wrangler.jsonc") || rc=$?
+if [[ $rc -eq 0 ]]; then
+  echo "$hits" >&2
+  die "placeholders remain in config.json or wrangler.jsonc (lines above); fill them in first (README.md)"
+elif [[ $rc -ne 1 ]]; then
+  die "couldn't read config.json or wrangler.jsonc (grep exit $rc)"
+fi
+
+config=$(jq -c . "$dir/config.json") || die "config.json isn't valid JSON"
+
+# The token must reach exactly the account in wrangler.jsonc, compared as a whole id.
+account=$(sed -n 's/^ *"account_id": *"\([0-9a-f]*\)".*/\1/p' "$dir/wrangler.jsonc")
+[[ -n $account ]] || die "couldn't read account_id from wrangler.jsonc"
+who=$(wrangler whoami --json 2>/dev/null) ||
+  die "wrangler whoami failed; set CLOUDFLARE_API_TOKEN to a token for account $account"
+accounts=$(jq -r '[.accounts[]?.id] | sort | join(",")' <<<"$who") ||
+  die "couldn't parse the output of wrangler whoami --json"
+[[ $accounts == "$account" ]] ||
+  die "the token must reach exactly account $account; it reaches: ${accounts:-none}"
+export CLOUDFLARE_ACCOUNT_ID=$account
+
+# Run the core validator through the CLI: `export` parses and validates the whole config before it
+# touches a key, so a throwaway all-zero root key is enough to check the config. Output discarded.
+key=$(jq -r '.keys | keys[0]' <<<"$config")
+head -c32 /dev/zero | base64 |
+  cargo run -q --manifest-path "$repo/Cargo.toml" -p edgekms-cli -- \
+    export --config "$dir/config.json" --key "$key" --version 1 >/dev/null ||
+  die "config.json failed validation"
+
+# --cwd matters: wrangler resolves build.cwd against its working directory, not the config file.
+exec wrangler --cwd "$dir" deploy --config wrangler.jsonc --var "EDGEKMS_CONFIG:$config"

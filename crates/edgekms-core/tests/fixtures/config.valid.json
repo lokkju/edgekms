@@ -1,0 +1,31 @@
+{
+  "root_id": "r1",
+  "keys": {
+    "infra-prod": { "id": "k_7f3a9c1e", "latest_version": 2, "min_decryption_version": 1 },
+    "openbao-unseal": { "id": "k_02be44d0", "latest_version": 1, "min_decryption_version": 1 }
+  },
+  "mounts": {
+    "github": { "type": "jwt", "issuer": "https://token.actions.githubusercontent.com", "jwks_url": "https://token.actions.githubusercontent.com/.well-known/jwks" },
+    "ssh": { "type": "ssh" }
+  },
+  "roles": {
+    "infra-ci": {
+      "mount": "github",
+      "bound_audiences": ["https://kms.example.com"],
+      "bound_claims": { "repository_id": "812345678", "ref": { "glob": "refs/tags/v*" } },
+      "policies": ["infra-prod-decrypt"],
+      "token_ttl_secs": 900
+    },
+    "operator": {
+      "mount": "ssh",
+      "ssh_keys": ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOv8XbBNRn7ZQb7mDSc1D0ub0sWxRVrbKgkE9cG2qvT4 op"],
+      "policies": ["admin", "infra-prod-admin"],
+      "token_ttl_secs": 3600
+    }
+  },
+  "policies": {
+    "infra-prod-decrypt": { "keys": { "infra-prod": ["decrypt"] } },
+    "infra-prod-admin": { "keys": { "infra-prod": ["encrypt", "decrypt", "rewrap", "read"] } },
+    "admin": { "admin": ["token-create", "token-revoke"] }
+  }
+}

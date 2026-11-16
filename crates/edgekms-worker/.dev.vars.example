@@ -1,0 +1,3 @@
+# Copy to .dev.vars for `wrangler dev`; .dev.vars is gitignored.
+# ROOT_KEY is 32 random bytes, base64. Generate one with: openssl rand -base64 32
+ROOT_KEY=

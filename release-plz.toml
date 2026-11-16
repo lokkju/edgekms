@@ -1,0 +1,21 @@
+[workspace]
+# Version from git tags, tag and write changelogs, never publish to
+# crates.io. git_only also covers crates marked publish = false in Cargo.toml.
+git_only = true
+git_release_enable = true
+pr_draft = true
+
+[[package]]
+name = "edgekms-core"
+# Internal library; its changes reach users through the CLI's changelog.
+release = false
+
+[[package]]
+name = "edgekms-worker"
+# Deployed, not released.
+release = false
+
+[[package]]
+name = "edgekms-cli"
+# The one released artifact; core changes appear in its changelog.
+changelog_include = ["edgekms-core"]

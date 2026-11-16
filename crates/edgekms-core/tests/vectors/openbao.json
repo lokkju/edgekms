@@ -1,0 +1,41 @@
+{
+  "generator": "OpenBao v2.7.1 (a5db72cef75c24b920ade02065b18dd8eb666bac), committed 2026-10-01T15:32:54Z",
+  "keys": {
+    "1": "paRwwTojG9l0KU/SavFs43N4D/cdr3QAN/gFNKGMp1k=",
+    "2": "Up8o0qqV9TIfJhehnzLGVrxy80YKpwb1BgGZ8kmIzwE="
+  },
+  "cases": [
+    {
+      "plaintext": "",
+      "ciphertext": "vault:v1:3tuSnBPE197CQG2xrfBDfbhIPOUfysskRQahfQ=="
+    },
+    {
+      "plaintext": "YQ==",
+      "ciphertext": "vault:v1:4CURuOMOG61IfH8fNF/OVTKHHTqWla0Fx6btWFA="
+    },
+    {
+      "plaintext": "ZWRnZWttcw==",
+      "ciphertext": "vault:v1:VkAPZJM9n8EGwf+vlbtk0L0IWyukDMT8Kf4qjr9XRUwJeh4="
+    },
+    {
+      "plaintext": "ZjNUT1hWWmd1ZWR2RFlBaHhTWkFId0xOWWZ6OGFycnhzK3NXQVBWS3ZKVT0=",
+      "ciphertext": "vault:v1:P5hh8HP1Pz+ZZVRfdWaKXDw09b735zJQ4yhhAEN1q28mtgGg2JgyJK7z9R71/tstAzFUYbemgI139MS5CsVHog0Y5w9msbhc"
+    },
+    {
+      "plaintext": "",
+      "ciphertext": "vault:v2:KmSfhGy9+AZ9FRo7Nb8gsFqfWW918DinR+Asnw=="
+    },
+    {
+      "plaintext": "YQ==",
+      "ciphertext": "vault:v2:Nmj66wAeK3+7DUqFhc1+6sXs2VLs4X/kSBQxGj0="
+    },
+    {
+      "plaintext": "ZWRnZWttcw==",
+      "ciphertext": "vault:v2:BI0j0RCSm9WliOpqLMp3BeVicxFzSKC8zkmt/u3XAYlmnB4="
+    },
+    {
+      "plaintext": "dHVBclRvVGJVS01YWVJEeGg3Y21xYlduR0hNS0JpUjFnTG5JSWQzcVZ2VT0=",
+      "ciphertext": "vault:v2:n1UKja5np6C9WdjhW98FJXgTFZu0Cm7JEFMhz4ZFuZfmNd8OrQibvlT/5HYzqzTcBTLU6Z1G3985Rr4+jPZieldDTgRDp1m5"
+    }
+  ]
+}

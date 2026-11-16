@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+#MISE description="Build the edgekms CLI for a release target and package it with LICENSE and THIRD-PARTY-NOTICES"
+#USAGE arg "<target>" help="Rust target triple, for example x86_64-unknown-linux-gnu"
+#USAGE arg "<version>" help="Version for the tarball name, without the leading v"
+set -euo pipefail
+
+# Writes dist/edgekms-<version>-<target>.tar.gz and its .sha256. The release workflow runs it on
+# each target's runner; it also works locally for the host target.
+#
+# Paths compiled into the binary (panic locations, debug info) are remapped, so it names no
+# directory of the machine that built it: the cargo registry's source directories, whose names
+# carry the registry's host, become /cargo/registry/src/crates; CARGO_HOME becomes /cargo; the
+# checkout becomes /edgekms, the target directory /target, and HOME /home.
+
+target=${usage_target:-${1:?target}}
+version=${usage_version:-${2:?version}}
+repo=$(realpath "$(dirname "${BASH_SOURCE[0]}")/../..")
+cargo_home=$(realpath "${CARGO_HOME:-$HOME/.cargo}")
+target_dir=${CARGO_TARGET_DIR:-$repo/target}
+mkdir -p "$target_dir"
+target_dir=$(realpath "$target_dir")
+
+die() { echo "release-build: $*" >&2; exit 1; }
+
+cargo fetch --locked --manifest-path "$repo/Cargo.toml" --target "$target"
+
+# rustc applies the last --remap-path-prefix that matches, so the general prefixes go first.
+flags=(--remap-path-prefix="$HOME=/home" --remap-path-prefix="$cargo_home=/cargo"
+  --remap-path-prefix="$repo=/edgekms" --remap-path-prefix="$target_dir=/target")
+for src in "$cargo_home"/registry/src/*/; do
+  [[ -d $src ]] && flags+=(--remap-path-prefix="${src%/}=/cargo/registry/src/crates")
+done
+for co in "$cargo_home"/git/checkouts/*/; do
+  [[ -d $co ]] && flags+=(--remap-path-prefix="${co%/}=/cargo/git/checkouts/crate")
+done
+# CARGO_ENCODED_RUSTFLAGS separates flags with 0x1f, so a path with spaces stays one flag. It
+# replaces RUSTFLAGS; anything already in either is kept in front.
+existing=${CARGO_ENCODED_RUSTFLAGS:-}
+if [[ -z $existing && -n ${RUSTFLAGS:-} ]]; then
+  read -r -a rf <<<"$RUSTFLAGS"
+  existing=$(IFS=$'\x1f'; echo "${rf[*]}")
+fi
+encoded=$(IFS=$'\x1f'; echo "${flags[*]}")
+export CARGO_ENCODED_RUSTFLAGS=${existing:+$existing$'\x1f'}$encoded
+unset RUSTFLAGS
+
+cargo build --release --locked --manifest-path "$repo/Cargo.toml" -p edgekms-cli --target "$target"
+
+bin=$target_dir/$target/release/edgekms
+[[ -f $bin ]] || die "no binary at $bin"
+for leak in "$HOME" "$cargo_home" "$repo" "$target_dir"; do
+  ! grep -qaF -- "$leak" "$bin" || die "the binary still contains $leak"
+done
+registries=$(grep -aoE 'registry/src/[^/]+/' "$bin" | sort -u | grep -v '^registry/src/crates/$' || true)
+[[ -z $registries ]] || die "the binary still names registry directories: $registries"
+
+name=edgekms-$version-$target
+dist=$repo/dist
+rm -rf "${dist:?}/$name"
+mkdir -p "$dist/$name"
+cp "$bin" "$repo/LICENSE" "$dist/$name/"
+"$repo/.mise/tasks/third-party-notices" "$dist/$name/THIRD-PARTY-NOTICES"
+tar -C "$dist" -czf "$dist/$name.tar.gz" "$name"
+(cd "$dist" && shasum -a 256 "$name.tar.gz" >"$name.tar.gz.sha256")
+echo "packaged $dist/$name.tar.gz"

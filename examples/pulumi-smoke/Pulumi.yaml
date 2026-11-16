@@ -1,0 +1,20 @@
+name: edgekms-pulumi-smoke
+runtime: yaml
+description: >-
+  Throwaway first consumer of edgekms. The stack's one config secret is wrapped under a Transit
+  key through Pulumi's hashivault secrets provider.
+config:
+  # "<nonce>.<random>": run.sh prints the nonce and keeps the random part to itself.
+  smokeSecret:
+    type: string
+    secret: true
+outputs:
+  # The nonce, as a plain output. Only a decrypted smokeSecret can produce it, and it reveals
+  # nothing of the random part.
+  smokeNonce:
+    fn::unsecret:
+      fn::select:
+        - 0
+        - fn::split:
+            - "."
+            - ${smokeSecret}

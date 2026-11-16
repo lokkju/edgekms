@@ -1,0 +1,22 @@
+# cargo-about's settings for THIRD-PARTY-NOTICES (.mise/tasks/third-party-notices). A dependency
+# under a license not listed here fails the build until someone reads that license and adds it.
+accepted = [
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "MIT",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Zlib",
+  "CDLA-Permissive-2.0",
+  "MPL-2.0",
+]
+# The release targets, so target-specific dependencies are counted.
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "aarch64-apple-darwin",
+]
+ignore-build-dependencies = true
+ignore-dev-dependencies = true

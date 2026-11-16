@@ -1,0 +1,62 @@
+{
+  // The hosted Worker under `wrangler dev`, for scripts/e2e-hosted.sh and local runs.
+  // Mirrors deploy/example-hosted/wrangler.jsonc with local ids. Tenants are http://<name>.localhost:8787,
+  // the control plane http://api.localhost:8787.
+  "name": "edgekms-hosted-dev",
+  // Paths below are relative to this file, except build.cwd, which wrangler resolves against its
+  // own working directory: run it with --cwd scripts/e2e-hosted, as scripts/e2e-hosted.sh does.
+  "main": "../../crates/edgekms-worker/build/worker/shim.mjs",
+  "compatibility_date": "2026-10-01",
+  // Local only: a stray `wrangler deploy` of this config gets no workers.dev origin or preview URLs.
+  "workers_dev": false,
+  "preview_urls": false,
+  "build": { "cwd": "../../crates/edgekms-worker", "command": "worker-build --release" },
+  // The web console on http://app.localhost:8787, as in deploy/example-hosted/wrangler.jsonc. The
+  // directory must exist before wrangler starts: build it with `pnpm -C console build`, as
+  // scripts/e2e-hosted.sh does. run_worker_first keeps tenant hosts from serving console files.
+  "assets": {
+    "directory": "../../console/dist",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "not_found_handling": "single-page-application"
+  },
+  // MASTER_KEY_M1 is a Secrets Store binding (below) on wrangler's local store, which
+  // scripts/e2e-hosted.sh fills with `wrangler secrets-store secret create local-e2e-store
+  // --persist-to ...`. Any later MASTER_KEY_M<n> and GITHUB_CLIENT_SECRET come from the env file
+  // as Worker secrets (the Worker falls back to a secret when no Secrets Store binding exists),
+  // and so does GITHUB_API_BASE, which names the GitHub stub's port and is honoured only with
+  // HOSTED_APEX localhost. The env file also overrides HOSTED_ORIGIN_TEMPLATE's port.
+  "vars": {
+    "HOSTED_APEX": "localhost",
+    "HOSTED_ORIGIN_TEMPLATE": "http://{tenant}.localhost:8787",
+    "MASTER_KEY_CURRENT": "m1",
+    "GITHUB_CLIENT_ID": "Iv_hosted_test",
+    // The GitHub stub's operator user; the e2e may override it in .dev.vars.
+    "OPERATOR_GITHUB_IDS": "1001",
+    "MAX_TENANTS_PER_USER": "5",
+    // Required; scripts/e2e-hosted.sh overrides it in the env file, step by step.
+    "SIGNUP_MODE": "open",
+    "MAX_PENDING_INVITE_REQUESTS": "200"
+  },
+  "d1_databases": [
+    {
+      "binding": "TENANTS",
+      "database_name": "edgekms-tenants",
+      "database_id": "local-tenants",
+      "migrations_dir": "../../crates/edgekms-worker/migrations"
+    }
+  ],
+  "kv_namespaces": [{ "binding": "REVOKED", "id": "local-hosted-revoked" }],
+  "r2_buckets": [{ "binding": "AUDIT", "bucket_name": "edgekms-hosted-audit-dev" }],
+  "analytics_engine_datasets": [{ "binding": "METRICS", "dataset": "edgekms_hosted_dev" }],
+  "secrets_store_secrets": [
+    { "binding": "MASTER_KEY_M1", "store_id": "local-e2e-store", "secret_name": "edgekms-master-m1" }
+  ],
+  "ratelimits": [
+    { "name": "LOGIN_LIMIT", "namespace_id": "4001", "simple": { "limit": 30, "period": 60 } },
+    { "name": "TOKEN_LIMIT", "namespace_id": "4002", "simple": { "limit": 600, "period": 60 } },
+    { "name": "AUTH_FAIL_LIMIT", "namespace_id": "4003", "simple": { "limit": 30, "period": 60 } },
+    { "name": "TENANT_LIMIT", "namespace_id": "4004", "simple": { "limit": 3000, "period": 60 } },
+    { "name": "CONTROL_LIMIT", "namespace_id": "4005", "simple": { "limit": 60, "period": 60 } }
+  ]
+}

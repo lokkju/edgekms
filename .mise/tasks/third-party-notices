@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+#MISE description="Write THIRD-PARTY-NOTICES: the licenses of the Rust crates in the CLI and the npm packages in the web console bundle"
+#USAGE arg "[output]" help="Where to write it (default: THIRD-PARTY-NOTICES in the repo root)"
+set -euo pipefail
+
+# Needs cargo-about, Rust, node and pnpm (all pinned in .mise/config.toml). The release workflow
+# puts the result in every CLI tarball.
+#
+#   mise run third-party-notices dist/THIRD-PARTY-NOTICES
+
+repo=$(realpath "$(dirname "${BASH_SOURCE[0]}")/../..")
+out=${usage_output:-${1:-$repo/THIRD-PARTY-NOTICES}}
+here=$repo/scripts/third-party
+
+die() { echo "third-party-notices: $*" >&2; exit 1; }
+
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/edgekms-notices.XXXXXX")
+trap 'rm -rf "$tmp"' EXIT
+
+cargo about generate --config "$here/about.toml" \
+  --manifest-path "$repo/crates/edgekms-cli/Cargo.toml" -o "$tmp/cargo.txt" "$here/cargo.hbs" ||
+  die "cargo about failed"
+
+# A throwaway build with source maps, so the bundle's own sources say which packages it holds.
+pnpm -C "$repo/console" install --frozen-lockfile >/dev/null
+pnpm -C "$repo/console" exec vite build --sourcemap --outDir "$tmp/console" --emptyOutDir \
+  --logLevel error || die "the console build failed"
+node "$here/console-notices.mjs" "$tmp/console" >"$tmp/console.txt" ||
+  die "couldn't collect the console's npm licenses"
+
+{
+  echo "edgekms third-party notices"
+  echo
+  echo "edgekms is licensed under PolyForm Shield 1.0.0 (LICENSE). The binaries and the web console"
+  echo "include the open source software below, under the licenses shown."
+  echo
+  cat "$tmp/cargo.txt"
+  echo
+  cat "$tmp/console.txt"
+} >"$out"
+echo "wrote $out"
